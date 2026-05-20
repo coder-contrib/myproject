@@ -1,4 +1,4 @@
--- Ceramix AI ERP - Database Schema (v4 - Enterprise SaaS)
+-- Ceramix AI ERP - Database Schema (v5 - Enterprise SaaS - Fixed)
 -- PostgreSQL 14+
 -- Multi-tenant, UUID-based, RLS-enabled, event-sourced, AI-powered
 -- Full ERP + CRM + HR + Manufacturing + POS + Double-Entry Accounting
@@ -189,7 +189,6 @@ CREATE TABLE customers (
     phone VARCHAR(30),
     address TEXT,
     credit_limit NUMERIC(12, 2) DEFAULT 0,
-    balance NUMERIC(12, 2) DEFAULT 0,
     notes TEXT,
     version INTEGER DEFAULT 1,
     created_by UUID,
@@ -206,7 +205,6 @@ CREATE TABLE suppliers (
     company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
     company_name VARCHAR(200) NOT NULL,
     phone VARCHAR(30),
-    balance NUMERIC(12, 2) DEFAULT 0,
     version INTEGER DEFAULT 1,
     created_by UUID,
     updated_by UUID,
@@ -239,7 +237,7 @@ CREATE TABLE opportunities (
     customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     expected_value NUMERIC(14, 2),
-    stage VARCHAR(50) DEFAULT 'prospecting',
+    stage VARCHAR(50) DEFAULT 'prospecting' CHECK (stage IN ('prospecting', 'qualification', 'proposal', 'negotiation', 'closed_won', 'closed_lost')),
     probability NUMERIC(5, 2) DEFAULT 0,
     close_date DATE,
     assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -251,7 +249,7 @@ CREATE TABLE activities (
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     entity_type VARCHAR(50),
     entity_id UUID,
-    activity_type VARCHAR(50),
+    activity_type VARCHAR(50) CHECK (activity_type IN ('call', 'email', 'meeting', 'task', 'note')),
     description TEXT,
     due_date TIMESTAMP,
     completed_at TIMESTAMP,
@@ -275,7 +273,17 @@ CREATE TABLE taxes (
 );
 
 -- ============================================================
--- 10. PRODUCTS MODULE
+-- 10. UNITS LOOKUP TABLE
+-- ============================================================
+
+CREATE TABLE units (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(50) NOT NULL UNIQUE,
+    symbol VARCHAR(10)
+);
+
+-- ============================================================
+-- 11. PRODUCTS MODULE
 -- ============================================================
 
 CREATE TABLE products (
@@ -285,7 +293,7 @@ CREATE TABLE products (
     name VARCHAR(200) NOT NULL,
     sku VARCHAR(50),
     category VARCHAR(100),
-    unit VARCHAR(30) DEFAULT 'piece',
+    unit_id UUID REFERENCES units(id) ON DELETE SET NULL,
     sale_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
     purchase_price NUMERIC(12, 2) NOT NULL DEFAULT 0,
     average_cost NUMERIC(12, 2) DEFAULT 0,
@@ -305,7 +313,7 @@ CREATE TABLE products (
 CREATE TABLE product_units (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-    unit_name VARCHAR(50) NOT NULL,
+    unit_id UUID REFERENCES units(id) ON DELETE SET NULL,
     conversion_factor NUMERIC(12, 4) NOT NULL DEFAULT 1,
     is_default BOOLEAN DEFAULT FALSE
 );
@@ -317,7 +325,50 @@ CREATE TABLE barcodes (
 );
 
 -- ============================================================
--- 11. WAREHOUSE MODULE
+-- 12. PRODUCT PRICE HISTORY
+-- ============================================================
+
+CREATE TABLE product_price_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    old_sale_price NUMERIC(12, 2),
+    new_sale_price NUMERIC(12, 2),
+    old_purchase_price NUMERIC(12, 2),
+    new_purchase_price NUMERIC(12, 2),
+    changed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    changed_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================================
+-- 13. CUSTOMER PRICE LISTS / SPECIAL PRICING
+-- ============================================================
+
+CREATE TABLE customer_price_lists (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID REFERENCES tenants(id) ON DELETE CASCADE,
+    customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    special_price NUMERIC(12, 2) NOT NULL,
+    valid_from DATE,
+    valid_until DATE
+);
+
+-- ============================================================
+-- 14. SUPPLIER PRODUCTS / PRICE LISTS
+-- ============================================================
+
+CREATE TABLE supplier_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    supplier_id UUID REFERENCES suppliers(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+    supplier_sku VARCHAR(100),
+    purchase_price NUMERIC(12, 2),
+    lead_time_days INTEGER,
+    is_preferred BOOLEAN DEFAULT FALSE
+);
+
+-- ============================================================
+-- 15. WAREHOUSE MODULE
 -- ============================================================
 
 CREATE TABLE warehouses (
@@ -337,7 +388,7 @@ CREATE TABLE warehouses (
 );
 
 -- ============================================================
--- 12. ADVANCED INVENTORY SYSTEM
+-- 16. ADVANCED INVENTORY SYSTEM (Fixed: generated column)
 -- ============================================================
 
 CREATE TABLE inventory (
@@ -348,10 +399,13 @@ CREATE TABLE inventory (
     reserved_quantity INTEGER DEFAULT 0,
     damaged_quantity INTEGER DEFAULT 0,
     in_transit_quantity INTEGER DEFAULT 0,
-    available_quantity INTEGER DEFAULT 0,
+    available_quantity INTEGER GENERATED ALWAYS AS (quantity - reserved_quantity - damaged_quantity) STORED,
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(product_id, warehouse_id),
-    CONSTRAINT chk_inventory_quantity CHECK (quantity >= 0)
+    CONSTRAINT chk_inventory_quantity CHECK (quantity >= 0),
+    CONSTRAINT chk_reserved_quantity CHECK (reserved_quantity >= 0),
+    CONSTRAINT chk_damaged_quantity CHECK (damaged_quantity >= 0),
+    CONSTRAINT chk_in_transit_quantity CHECK (in_transit_quantity >= 0)
 );
 
 CREATE TABLE inventory_movements (
@@ -360,11 +414,19 @@ CREATE TABLE inventory_movements (
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
     from_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
     to_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
-    quantity INTEGER NOT NULL,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
     reason VARCHAR(50) NOT NULL CHECK (reason IN ('purchase', 'sale', 'transfer', 'return', 'adjustment', 'production')),
     reference_id UUID,
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT chk_warehouse_direction CHECK (
+        (reason = 'purchase' AND to_warehouse_id IS NOT NULL) OR
+        (reason = 'sale' AND from_warehouse_id IS NOT NULL) OR
+        (reason = 'transfer' AND from_warehouse_id IS NOT NULL AND to_warehouse_id IS NOT NULL) OR
+        (reason = 'return' AND (from_warehouse_id IS NOT NULL OR to_warehouse_id IS NOT NULL)) OR
+        (reason = 'adjustment' AND (from_warehouse_id IS NOT NULL OR to_warehouse_id IS NOT NULL)) OR
+        (reason = 'production' AND to_warehouse_id IS NOT NULL)
+    )
 );
 
 CREATE TABLE inventory_batches (
@@ -380,7 +442,29 @@ CREATE TABLE inventory_batches (
 );
 
 -- ============================================================
--- 13. DOCUMENT SEQUENCES (Invoice Numbering)
+-- 17. STOCK TRANSFERS (Inter-branch / Inter-company)
+-- ============================================================
+
+CREATE TABLE stock_transfers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    from_warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
+    to_warehouse_id UUID NOT NULL REFERENCES warehouses(id) ON DELETE RESTRICT,
+    status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'in_transit', 'received', 'cancelled')),
+    transferred_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    received_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE stock_transfer_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    transfer_id UUID NOT NULL REFERENCES stock_transfers(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    quantity INTEGER NOT NULL CHECK (quantity > 0)
+);
+
+-- ============================================================
+-- 18. DOCUMENT SEQUENCES (Invoice Numbering)
 -- ============================================================
 
 CREATE TABLE document_sequences (
@@ -392,11 +476,12 @@ CREATE TABLE document_sequences (
     prefix VARCHAR(20),
     next_number INTEGER DEFAULT 1,
     fiscal_year VARCHAR(10),
+    last_reset_date DATE,
     UNIQUE(tenant_id, company_id, branch_id, document_type, fiscal_year)
 );
 
 -- ============================================================
--- 14. QUOTATIONS & ORDERS
+-- 19. QUOTATIONS & ORDERS
 -- ============================================================
 
 CREATE TABLE quotations (
@@ -475,7 +560,32 @@ CREATE TABLE purchase_order_items (
 );
 
 -- ============================================================
--- 15. SALES MODULE
+-- 20. POS MODULE
+-- ============================================================
+
+CREATE TABLE pos_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    opening_balance NUMERIC(12, 2) DEFAULT 0,
+    closing_balance NUMERIC(12, 2),
+    opened_at TIMESTAMP DEFAULT NOW(),
+    closed_at TIMESTAMP,
+    status VARCHAR(30) DEFAULT 'open' CHECK (status IN ('open', 'closed'))
+);
+
+CREATE TABLE cash_drawers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pos_session_id UUID REFERENCES pos_sessions(id) ON DELETE CASCADE,
+    action VARCHAR(30) NOT NULL CHECK (action IN ('cash_in', 'cash_out', 'adjustment')),
+    amount NUMERIC(12, 2) NOT NULL,
+    reason TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ============================================================
+-- 21. SALES MODULE (Fixed: added due_date, pos_session_id)
 -- ============================================================
 
 CREATE TABLE sales_invoices (
@@ -487,11 +597,13 @@ CREATE TABLE sales_invoices (
     branch_id UUID REFERENCES branches(id) ON DELETE SET NULL,
     currency_id UUID REFERENCES currencies(id) ON DELETE SET NULL,
     sales_order_id UUID REFERENCES sales_orders(id) ON DELETE SET NULL,
+    pos_session_id UUID REFERENCES pos_sessions(id) ON DELETE SET NULL,
     subtotal NUMERIC(12, 2) NOT NULL DEFAULT 0,
     discount NUMERIC(12, 2) DEFAULT 0,
     total NUMERIC(12, 2) NOT NULL DEFAULT 0,
     amount_paid NUMERIC(12, 2) DEFAULT 0,
     payment_type VARCHAR(30) DEFAULT 'cash',
+    due_date DATE,
     status VARCHAR(30) DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'posted', 'paid', 'partial', 'cancelled', 'reversed', 'archived')),
     version INTEGER DEFAULT 1,
     created_by UUID,
@@ -520,7 +632,7 @@ CREATE TABLE sales_items (
 );
 
 -- ============================================================
--- 16. PURCHASE MODULE
+-- 22. PURCHASE MODULE
 -- ============================================================
 
 CREATE TABLE purchase_invoices (
@@ -534,6 +646,7 @@ CREATE TABLE purchase_invoices (
     purchase_order_id UUID REFERENCES purchase_orders(id) ON DELETE SET NULL,
     total NUMERIC(12, 2) NOT NULL DEFAULT 0,
     amount_paid NUMERIC(12, 2) DEFAULT 0,
+    due_date DATE,
     status VARCHAR(30) DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'posted', 'paid', 'partial', 'cancelled', 'reversed', 'archived')),
     version INTEGER DEFAULT 1,
     created_by UUID,
@@ -557,7 +670,26 @@ CREATE TABLE purchase_items (
 );
 
 -- ============================================================
--- 17. TREASURY & FINANCE (Multi-Currency)
+-- 23. CREDIT NOTES (Financial adjustments, separate from returns)
+-- ============================================================
+
+CREATE TABLE credit_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    company_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+    note_number VARCHAR(50) NOT NULL,
+    customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,
+    sales_invoice_id UUID REFERENCES sales_invoices(id) ON DELETE SET NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    reason TEXT,
+    status VARCHAR(30) DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'applied', 'cancelled')),
+    created_by UUID,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(tenant_id, note_number)
+);
+
+-- ============================================================
+-- 24. TREASURY & FINANCE (Multi-Currency)
 -- ============================================================
 
 CREATE TABLE treasury (
@@ -584,6 +716,15 @@ CREATE TABLE payments (
     CONSTRAINT chk_payment_amount CHECK (amount > 0)
 );
 
+CREATE TABLE cheques (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    payment_id UUID NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+    cheque_number VARCHAR(100) NOT NULL,
+    bank_name VARCHAR(100),
+    due_date DATE NOT NULL,
+    status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'cleared', 'bounced', 'cancelled'))
+);
+
 CREATE TABLE expenses (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -599,7 +740,7 @@ CREATE TABLE expenses (
 );
 
 -- ============================================================
--- 18. FISCAL YEAR SYSTEM
+-- 25. FISCAL YEAR SYSTEM
 -- ============================================================
 
 CREATE TABLE fiscal_years (
@@ -613,7 +754,7 @@ CREATE TABLE fiscal_years (
 );
 
 -- ============================================================
--- 19. COST CENTERS
+-- 26. COST CENTERS
 -- ============================================================
 
 CREATE TABLE cost_centers (
@@ -628,7 +769,7 @@ ADD CONSTRAINT fk_expenses_cost_center
 FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL;
 
 -- ============================================================
--- 20. DOUBLE ENTRY ACCOUNTING
+-- 27. DOUBLE ENTRY ACCOUNTING (Fixed: partition-safe)
 -- ============================================================
 
 CREATE TABLE accounts (
@@ -652,19 +793,20 @@ CREATE TABLE accounts (
 
 CREATE TABLE journal_entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    fiscal_year_id UUID REFERENCES fiscal_years(id) ON DELETE SET NULL,
-    cost_center_id UUID REFERENCES cost_centers(id) ON DELETE SET NULL,
+    tenant_id UUID NOT NULL,
+    fiscal_year_id UUID,
+    cost_center_id UUID,
     reference_type VARCHAR(50),
     reference_id UUID,
     description TEXT,
     created_by UUID,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE journal_entry_lines (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     journal_entry_id UUID NOT NULL,
+    journal_entry_created_at TIMESTAMP NOT NULL,
     account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
     debit NUMERIC(14, 2) DEFAULT 0,
     credit NUMERIC(14, 2) DEFAULT 0,
@@ -686,7 +828,7 @@ CREATE TABLE ledger_snapshots (
 );
 
 -- ============================================================
--- 21. RETURNS MODULE
+-- 28. RETURNS MODULE (Fixed: normalized with return_items)
 -- ============================================================
 
 CREATE TABLE returns (
@@ -695,15 +837,22 @@ CREATE TABLE returns (
     return_type VARCHAR(30) NOT NULL CHECK (return_type IN ('sales_return', 'purchase_return')),
     sales_invoice_id UUID REFERENCES sales_invoices(id) ON DELETE SET NULL,
     purchase_invoice_id UUID REFERENCES purchase_invoices(id) ON DELETE SET NULL,
-    product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
-    quantity INTEGER NOT NULL,
-    refund_amount NUMERIC(12, 2) DEFAULT 0,
+    reason TEXT,
+    status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'processed', 'cancelled')),
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE return_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    return_id UUID NOT NULL REFERENCES returns(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    refund_amount NUMERIC(12, 2) DEFAULT 0
+);
+
 -- ============================================================
--- 22. E-INVOICE / TAX AUTHORITY
+-- 29. E-INVOICE / TAX AUTHORITY
 -- ============================================================
 
 CREATE TABLE tax_authority_logs (
@@ -718,7 +867,7 @@ CREATE TABLE tax_authority_logs (
 );
 
 -- ============================================================
--- 23. AI MODULE (Enhanced with Embeddings & Training)
+-- 30. AI MODULE (Enhanced - HNSW index)
 -- ============================================================
 
 CREATE TABLE ai_conversations (
@@ -739,7 +888,7 @@ CREATE TABLE ai_logs (
     confidence_score NUMERIC(5, 2),
     execution_time_ms INTEGER,
     embedding vector(1536),
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE ai_training_data (
@@ -769,7 +918,7 @@ CREATE TABLE prompt_templates (
 );
 
 -- ============================================================
--- 24. AUDIT & MONITORING (Partitioned)
+-- 31. AUDIT & MONITORING (Partitioned)
 -- ============================================================
 
 CREATE TABLE audit_logs (
@@ -784,7 +933,7 @@ CREATE TABLE audit_logs (
     endpoint TEXT,
     method VARCHAR(10),
     device_info TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE api_audit_logs (
@@ -797,11 +946,11 @@ CREATE TABLE api_audit_logs (
     response_code INTEGER,
     latency_ms INTEGER,
     ip_address VARCHAR(45),
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 ) PARTITION BY RANGE (created_at);
 
 -- ============================================================
--- 25. NOTIFICATION SYSTEM
+-- 32. NOTIFICATION SYSTEM
 -- ============================================================
 
 CREATE TABLE notifications (
@@ -827,7 +976,7 @@ CREATE TABLE realtime_notifications (
 );
 
 -- ============================================================
--- 26. APPROVAL WORKFLOW SYSTEM
+-- 33. APPROVAL WORKFLOW SYSTEM
 -- ============================================================
 
 CREATE TABLE approval_workflows (
@@ -846,7 +995,7 @@ CREATE TABLE approval_steps (
 );
 
 -- ============================================================
--- 27. EVENT SYSTEM (Event Sourcing + Outbox)
+-- 34. EVENT SYSTEM (Event Sourcing + Outbox)
 -- ============================================================
 
 CREATE TABLE system_events (
@@ -858,7 +1007,7 @@ CREATE TABLE system_events (
     event_version INTEGER DEFAULT 1,
     payload JSONB,
     processed BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 ) PARTITION BY RANGE (created_at);
 
 CREATE TABLE outbox_events (
@@ -871,7 +1020,7 @@ CREATE TABLE outbox_events (
 );
 
 -- ============================================================
--- 28. FILE MANAGEMENT (Enhanced)
+-- 35. FILE MANAGEMENT (Enhanced)
 -- ============================================================
 
 CREATE TABLE attachments (
@@ -890,7 +1039,7 @@ CREATE TABLE attachments (
 );
 
 -- ============================================================
--- 29. SETTINGS SYSTEM
+-- 36. SETTINGS SYSTEM
 -- ============================================================
 
 CREATE TABLE settings (
@@ -904,7 +1053,7 @@ CREATE TABLE settings (
 );
 
 -- ============================================================
--- 30. MANUFACTURING MODULE
+-- 37. MANUFACTURING MODULE
 -- ============================================================
 
 CREATE TABLE bill_of_materials (
@@ -927,7 +1076,7 @@ CREATE TABLE production_orders (
 );
 
 -- ============================================================
--- 31. HR MODULE
+-- 38. HR MODULE (Enhanced)
 -- ============================================================
 
 CREATE TABLE departments (
@@ -946,8 +1095,13 @@ CREATE TABLE employees (
     department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
     employee_number VARCHAR(50),
     position VARCHAR(100),
+    national_id VARCHAR(50),
+    contract_type VARCHAR(30) CHECK (contract_type IN ('full_time', 'part_time', 'contractor', 'intern')),
     hire_date DATE,
+    end_date DATE,
     salary NUMERIC(12, 2),
+    emergency_contact TEXT,
+    bank_account VARCHAR(100),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -980,37 +1134,14 @@ CREATE TABLE payroll (
     deductions NUMERIC(12, 2) DEFAULT 0,
     bonuses NUMERIC(12, 2) DEFAULT 0,
     net_salary NUMERIC(12, 2),
-    status VARCHAR(30) DEFAULT 'draft',
+    payment_date DATE,
+    payment_method VARCHAR(30) CHECK (payment_method IN ('bank_transfer', 'cash', 'cheque')),
+    status VARCHAR(30) DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'paid')),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- ============================================================
--- 32. POS MODULE
--- ============================================================
-
-CREATE TABLE pos_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-    branch_id UUID REFERENCES branches(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    opening_balance NUMERIC(12, 2) DEFAULT 0,
-    closing_balance NUMERIC(12, 2),
-    opened_at TIMESTAMP DEFAULT NOW(),
-    closed_at TIMESTAMP,
-    status VARCHAR(30) DEFAULT 'open' CHECK (status IN ('open', 'closed'))
-);
-
-CREATE TABLE cash_drawers (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pos_session_id UUID REFERENCES pos_sessions(id) ON DELETE CASCADE,
-    action VARCHAR(30) NOT NULL,
-    amount NUMERIC(12, 2) NOT NULL,
-    reason TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- ============================================================
--- 33. SAAS SUBSCRIPTION SYSTEM
+-- 39. SAAS SUBSCRIPTION SYSTEM
 -- ============================================================
 
 CREATE TABLE subscription_plans (
@@ -1034,7 +1165,7 @@ CREATE TABLE subscriptions (
 );
 
 -- ============================================================
--- 34. FEATURE FLAGS
+-- 40. FEATURE FLAGS
 -- ============================================================
 
 CREATE TABLE feature_flags (
@@ -1046,7 +1177,7 @@ CREATE TABLE feature_flags (
 );
 
 -- ============================================================
--- 35. WEBHOOKS
+-- 41. WEBHOOKS
 -- ============================================================
 
 CREATE TABLE webhooks (
@@ -1061,7 +1192,7 @@ CREATE TABLE webhooks (
 );
 
 -- ============================================================
--- 36. SCHEDULED REPORTS
+-- 42. SCHEDULED REPORTS
 -- ============================================================
 
 CREATE TABLE scheduled_reports (
@@ -1074,7 +1205,7 @@ CREATE TABLE scheduled_reports (
 );
 
 -- ============================================================
--- 37. BACKGROUND JOBS
+-- 43. BACKGROUND JOBS
 -- ============================================================
 
 CREATE TABLE background_jobs (
@@ -1088,7 +1219,7 @@ CREATE TABLE background_jobs (
 );
 
 -- ============================================================
--- 38. API RATE LIMITING
+-- 44. API RATE LIMITING
 -- ============================================================
 
 CREATE TABLE api_rate_limits (
@@ -1099,7 +1230,7 @@ CREATE TABLE api_rate_limits (
 );
 
 -- ============================================================
--- 39. BUSINESS INTELLIGENCE
+-- 45. BUSINESS INTELLIGENCE
 -- ============================================================
 
 CREATE TABLE kpi_definitions (
@@ -1124,7 +1255,7 @@ CREATE TABLE dashboard_widgets (
 );
 
 -- ============================================================
--- 40. SYSTEM HEALTH & BACKUP
+-- 46. SYSTEM HEALTH & BACKUP
 -- ============================================================
 
 CREATE TABLE system_health_metrics (
@@ -1154,7 +1285,7 @@ CREATE TABLE restore_logs (
 );
 
 -- ============================================================
--- 41. DATABASE MIGRATION TRACKING
+-- 47. DATABASE MIGRATION TRACKING
 -- ============================================================
 
 CREATE TABLE schema_migrations (
@@ -1165,7 +1296,7 @@ CREATE TABLE schema_migrations (
 );
 
 -- ============================================================
--- 42. DATA RETENTION
+-- 48. DATA RETENTION
 -- ============================================================
 
 CREATE TABLE data_retention_policies (
@@ -1218,7 +1349,7 @@ CREATE TRIGGER trg_tenants_updated_at BEFORE UPDATE ON tenants FOR EACH ROW EXEC
 -- INDEXES
 -- ============================================================
 
--- Tenants
+-- Tenants & Companies
 CREATE INDEX idx_companies_tenant ON companies(tenant_id);
 CREATE INDEX idx_branches_tenant ON branches(tenant_id);
 CREATE INDEX idx_branches_company ON branches(company_id);
@@ -1260,6 +1391,11 @@ CREATE INDEX idx_products_category ON products(category);
 CREATE INDEX idx_products_search ON products USING GIN(search_vector);
 CREATE INDEX idx_barcodes_product ON barcodes(product_id);
 CREATE INDEX idx_product_units_product ON product_units(product_id);
+CREATE INDEX idx_price_history_product ON product_price_history(product_id);
+CREATE INDEX idx_customer_prices_customer ON customer_price_lists(customer_id);
+CREATE INDEX idx_customer_prices_product ON customer_price_lists(product_id);
+CREATE INDEX idx_supplier_products_supplier ON supplier_products(supplier_id);
+CREATE INDEX idx_supplier_products_product ON supplier_products(product_id);
 
 -- Inventory
 CREATE INDEX idx_inventory_product ON inventory(product_id);
@@ -1268,6 +1404,7 @@ CREATE INDEX idx_inventory_movements_tenant ON inventory_movements(tenant_id);
 CREATE INDEX idx_inventory_movements_product ON inventory_movements(product_id);
 CREATE INDEX idx_inventory_batches_product ON inventory_batches(product_id);
 CREATE INDEX idx_inventory_batches_expiry ON inventory_batches(expiry_date);
+CREATE INDEX idx_stock_transfers_tenant ON stock_transfers(tenant_id);
 
 -- Orders & Quotations
 CREATE INDEX idx_quotations_tenant ON quotations(tenant_id);
@@ -1284,6 +1421,7 @@ CREATE INDEX idx_sales_invoices_customer ON sales_invoices(customer_id);
 CREATE INDEX idx_sales_invoices_branch ON sales_invoices(branch_id);
 CREATE INDEX idx_sales_invoices_status ON sales_invoices(status);
 CREATE INDEX idx_sales_invoices_date ON sales_invoices(created_at);
+CREATE INDEX idx_sales_invoices_due_date ON sales_invoices(due_date);
 CREATE INDEX idx_sales_items_invoice ON sales_items(invoice_id);
 CREATE INDEX idx_sales_items_product ON sales_items(product_id);
 
@@ -1294,10 +1432,16 @@ CREATE INDEX idx_purchase_invoices_supplier ON purchase_invoices(supplier_id);
 CREATE INDEX idx_purchase_invoices_branch ON purchase_invoices(branch_id);
 CREATE INDEX idx_purchase_items_invoice ON purchase_items(invoice_id);
 
+-- Credit Notes
+CREATE INDEX idx_credit_notes_tenant ON credit_notes(tenant_id);
+CREATE INDEX idx_credit_notes_customer ON credit_notes(customer_id);
+
 -- Payments & Treasury
 CREATE INDEX idx_payments_tenant ON payments(tenant_id);
 CREATE INDEX idx_payments_company ON payments(company_id);
 CREATE INDEX idx_payments_treasury ON payments(treasury_id);
+CREATE INDEX idx_cheques_payment ON cheques(payment_id);
+CREATE INDEX idx_cheques_status ON cheques(status);
 CREATE INDEX idx_expenses_tenant ON expenses(tenant_id);
 CREATE INDEX idx_expenses_company ON expenses(company_id);
 
@@ -1313,9 +1457,6 @@ CREATE INDEX idx_ledger_snapshots_account ON ledger_snapshots(account_id);
 -- AI
 CREATE INDEX idx_ai_conversations_user ON ai_conversations(user_id);
 CREATE INDEX idx_ai_feedback_log ON ai_feedback(ai_log_id);
-
--- Semantic Search (Vector)
-CREATE INDEX idx_ai_embedding ON ai_logs USING ivfflat (embedding vector_cosine_ops);
 
 -- Notifications
 CREATE INDEX idx_notifications_tenant ON notifications(tenant_id);
@@ -1367,6 +1508,15 @@ CREATE INDEX idx_system_health_type ON system_health_metrics(metric_type);
 CREATE INDEX idx_system_health_date ON system_health_metrics(created_at);
 
 -- ============================================================
+-- COMPOSITE INDEXES (Common Query Patterns)
+-- ============================================================
+
+CREATE INDEX idx_sales_invoices_company_date ON sales_invoices(company_id, created_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_purchase_invoices_company_date ON purchase_invoices(company_id, created_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_inventory_low_stock ON inventory(product_id, quantity) WHERE quantity < 10;
+CREATE INDEX idx_cheques_due ON cheques(due_date) WHERE status = 'pending';
+
+-- ============================================================
 -- PARTIAL INDEXES (Soft Delete Performance)
 -- ============================================================
 
@@ -1377,6 +1527,13 @@ CREATE INDEX idx_active_warehouses ON warehouses(id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_active_sales_invoices ON sales_invoices(id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_active_purchase_invoices ON purchase_invoices(id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_active_accounts ON accounts(id) WHERE deleted_at IS NULL;
+
+-- ============================================================
+-- VECTOR INDEX (HNSW for production - better recall than ivfflat)
+-- ============================================================
+
+-- Note: Create AFTER inserting initial data for best performance
+-- CREATE INDEX idx_ai_embedding ON ai_logs USING hnsw (embedding vector_cosine_ops);
 
 -- ============================================================
 -- MATERIALIZED VIEWS (Analytics)
@@ -1425,6 +1582,19 @@ GROUP BY si.product_id, p.name, p.tenant_id;
 -- SEED DATA
 -- ============================================================
 
+-- Default Units
+INSERT INTO units (name, symbol) VALUES
+    ('piece', 'pc'),
+    ('kilogram', 'kg'),
+    ('gram', 'g'),
+    ('liter', 'L'),
+    ('meter', 'm'),
+    ('box', 'box'),
+    ('carton', 'ctn'),
+    ('dozen', 'dz'),
+    ('pack', 'pk'),
+    ('ton', 't');
+
 -- Default Currencies
 INSERT INTO currencies (code, name, symbol) VALUES
     ('EGP', 'Egyptian Pound', 'E£'),
@@ -1440,7 +1610,7 @@ INSERT INTO languages (code, name, is_rtl) VALUES
     ('en', 'English', FALSE),
     ('fr', 'French', FALSE);
 
--- Default Permissions (Module.Action.Scope format)
+-- Default Permissions (Module.Action.Scope)
 INSERT INTO permissions (name, module, action, scope, description) VALUES
     ('sales.invoice.create', 'sales', 'create', 'own', 'Create sales invoices'),
     ('sales.invoice.read', 'sales', 'read', 'all', 'View sales invoices'),
@@ -1480,6 +1650,6 @@ INSERT INTO feature_flags (name, enabled) VALUES
     ('crm_pipeline', TRUE),
     ('e_invoice', FALSE);
 
--- Schema version tracking
+-- Schema version
 INSERT INTO schema_migrations (version, name) VALUES
-    ('v4.0.0', 'Enterprise SaaS schema with full tenant isolation');
+    ('v5.0.0', 'Enterprise SaaS - fixed integrity issues, added missing tables');
