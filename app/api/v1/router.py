@@ -8,6 +8,7 @@ from app.api.v1.purchases import router as purchases_router
 from app.api.v1.accounting import router as accounting_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.files import router as files_router
+from app.api.v1.reports import router as reports_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -20,3 +21,4 @@ api_v1_router.include_router(purchases_router)
 api_v1_router.include_router(accounting_router)
 api_v1_router.include_router(ai_router)
 api_v1_router.include_router(files_router)
+api_v1_router.include_router(reports_router)
