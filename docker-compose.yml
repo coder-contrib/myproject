@@ -63,6 +63,8 @@ services:
       dockerfile: Dockerfile
     command: celery -A app.jobs.celery_app beat --loglevel=info
     environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-ceramix}:${POSTGRES_PASSWORD:-ceramix_secret}@postgres:5432/${POSTGRES_DB:-ceramix_erp}
+      - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
     depends_on:
