@@ -9,6 +9,7 @@ from app.api.v1.accounting import router as accounting_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.files import router as files_router
 from app.api.v1.reports import router as reports_router
+from app.api.v1.webhooks import router as webhooks_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -22,3 +23,4 @@ api_v1_router.include_router(accounting_router)
 api_v1_router.include_router(ai_router)
 api_v1_router.include_router(files_router)
 api_v1_router.include_router(reports_router)
+api_v1_router.include_router(webhooks_router)
