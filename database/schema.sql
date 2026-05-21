@@ -1,4 +1,4 @@
--- Ceramix AI ERP - Database Schema (v5 - Enterprise SaaS - Fixed)
+-- Ceramix AI ERP - Database Schema (v5.1 - Enterprise SaaS - Fixed)
 -- PostgreSQL 14+
 -- Multi-tenant, UUID-based, RLS-enabled, event-sourced, AI-powered
 -- Full ERP + CRM + HR + Manufacturing + POS + Double-Entry Accounting
@@ -1579,6 +1579,85 @@ JOIN products p ON p.id = si.product_id
 GROUP BY si.product_id, p.name, p.tenant_id;
 
 -- ============================================================
+-- DEFERRED FOREIGN KEYS (created_by, updated_by, deleted_by)
+-- Added via ALTER TABLE to resolve circular dependencies
+-- ============================================================
+
+-- Companies
+ALTER TABLE companies ADD CONSTRAINT fk_companies_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE companies ADD CONSTRAINT fk_companies_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE companies ADD CONSTRAINT fk_companies_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Branches
+ALTER TABLE branches ADD CONSTRAINT fk_branches_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE branches ADD CONSTRAINT fk_branches_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE branches ADD CONSTRAINT fk_branches_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Users (self-reference)
+ALTER TABLE users ADD CONSTRAINT fk_users_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Customers
+ALTER TABLE customers ADD CONSTRAINT fk_customers_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE customers ADD CONSTRAINT fk_customers_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE customers ADD CONSTRAINT fk_customers_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Suppliers
+ALTER TABLE suppliers ADD CONSTRAINT fk_suppliers_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE suppliers ADD CONSTRAINT fk_suppliers_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE suppliers ADD CONSTRAINT fk_suppliers_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Products
+ALTER TABLE products ADD CONSTRAINT fk_products_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE products ADD CONSTRAINT fk_products_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE products ADD CONSTRAINT fk_products_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Warehouses
+ALTER TABLE warehouses ADD CONSTRAINT fk_warehouses_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE warehouses ADD CONSTRAINT fk_warehouses_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE warehouses ADD CONSTRAINT fk_warehouses_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Sales Invoices
+ALTER TABLE sales_invoices ADD CONSTRAINT fk_sales_invoices_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE sales_invoices ADD CONSTRAINT fk_sales_invoices_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE sales_invoices ADD CONSTRAINT fk_sales_invoices_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Purchase Invoices
+ALTER TABLE purchase_invoices ADD CONSTRAINT fk_purchase_invoices_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE purchase_invoices ADD CONSTRAINT fk_purchase_invoices_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE purchase_invoices ADD CONSTRAINT fk_purchase_invoices_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Accounts
+ALTER TABLE accounts ADD CONSTRAINT fk_accounts_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE accounts ADD CONSTRAINT fk_accounts_updated_by FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE accounts ADD CONSTRAINT fk_accounts_deleted_by FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Quotations
+ALTER TABLE quotations ADD CONSTRAINT fk_quotations_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Sales Orders
+ALTER TABLE sales_orders ADD CONSTRAINT fk_sales_orders_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Purchase Orders
+ALTER TABLE purchase_orders ADD CONSTRAINT fk_purchase_orders_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Credit Notes
+ALTER TABLE credit_notes ADD CONSTRAINT fk_credit_notes_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Production Orders
+ALTER TABLE production_orders ADD CONSTRAINT fk_production_orders_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+-- Journal Entries (partition-safe: no FK to partitioned table, but FK from it)
+ALTER TABLE journal_entries ADD CONSTRAINT fk_journal_entries_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE journal_entries ADD CONSTRAINT fk_journal_entries_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES fiscal_years(id) ON DELETE SET NULL;
+ALTER TABLE journal_entries ADD CONSTRAINT fk_journal_entries_cost_center FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL;
+
+-- Background Jobs
+ALTER TABLE background_jobs ADD CONSTRAINT fk_background_jobs_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+
+-- Outbox Events
+ALTER TABLE outbox_events ADD CONSTRAINT fk_outbox_events_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE;
+
+-- ============================================================
 -- SEED DATA
 -- ============================================================
 
@@ -1652,4 +1731,5 @@ INSERT INTO feature_flags (name, enabled) VALUES
 
 -- Schema version
 INSERT INTO schema_migrations (version, name) VALUES
-    ('v5.0.0', 'Enterprise SaaS - fixed integrity issues, added missing tables');
+    ('v5.0.0', 'Enterprise SaaS - fixed integrity issues, added missing tables'),
+    ('v5.1.0', 'Added missing foreign keys for created_by, updated_by, deleted_by and other loose references');
