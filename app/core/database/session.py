@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, Callable
+from functools import wraps
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from app.core.config import get_settings
@@ -22,7 +25,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_db() -> AsyncSession:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
@@ -32,3 +35,29 @@ async def get_db() -> AsyncSession:
             raise
         finally:
             await session.close()
+
+
+@asynccontextmanager
+async def transaction() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            yield session
+
+
+@asynccontextmanager
+async def nested_transaction(session: AsyncSession) -> AsyncGenerator[AsyncSession, None]:
+    async with session.begin_nested():
+        yield session
+
+
+def transactional(func: Callable) -> Callable:
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        db = kwargs.get("db")
+        if db:
+            return await func(*args, **kwargs)
+
+        async with transaction() as session:
+            kwargs["db"] = session
+            return await func(*args, **kwargs)
+    return wrapper
