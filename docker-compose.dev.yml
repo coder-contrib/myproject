@@ -1,0 +1,61 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://ceramix:ceramix_secret@postgres:5432/ceramix_erp
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=text
+      - SHOW_DOCS=true
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dev_network
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      - POSTGRES_USER=ceramix
+      - POSTGRES_PASSWORD=ceramix_secret
+      - POSTGRES_DB=ceramix_erp
+    ports:
+      - "5432:5432"
+    volumes:
+      - dev_postgres:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ceramix"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dev_network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dev_network
+
+volumes:
+  dev_postgres:
+
+networks:
+  dev_network:
+    driver: bridge
