@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -16,11 +17,23 @@ from app.core.middleware import (
     SecureHeadersMiddleware,
     HTTPSRedirectMiddleware,
 )
+from app.realtime.router import realtime_router
+from app.realtime.redis_pubsub import RedisPubSub
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
+
+redis_pubsub = RedisPubSub()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await redis_pubsub.start()
+    yield
+    await redis_pubsub.stop()
+
 
 app = FastAPI(
     title="Ceramix AI ERP",
@@ -28,6 +41,7 @@ app = FastAPI(
     description="Enterprise Resource Planning API - Multi-tenant SaaS",
     docs_url="/docs" if os.getenv("SHOW_DOCS", "true").lower() == "true" else None,
     redoc_url="/redoc" if os.getenv("SHOW_DOCS", "true").lower() == "true" else None,
+    lifespan=lifespan,
 )
 
 # --- Middleware Stack (order matters: outermost first) ---
@@ -87,6 +101,7 @@ async def internal_error_handler(request: Request, exc):
 # --- Routes ---
 
 app.include_router(api_v1_router)
+app.include_router(realtime_router)
 
 
 @app.get("/health")
