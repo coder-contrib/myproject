@@ -31,11 +31,15 @@ def create_access_token(
     role: str | None = None,
     permissions: list[str] | None = None,
     session_id: UUID | None = None,
+    company_id: UUID | None = None,
+    branch_id: UUID | None = None,
 ) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": str(user_id),
         "tenant_id": str(tenant_id),
+        "company_id": str(company_id) if company_id else None,
+        "branch_id": str(branch_id) if branch_id else None,
         "role": role,
         "permissions": permissions or [],
         "session_id": str(session_id) if session_id else None,

@@ -1,5 +1,5 @@
 from .session import Base, engine, AsyncSessionLocal, get_db
-from .base_model import BaseModel, TimestampMixin, SoftDeleteMixin, TenantMixin, AuditMixin, VersionMixin
+from .base_model import BaseModel, TimestampMixin, SoftDeleteMixin, TenantMixin, CompanyMixin, BranchMixin, AuditMixin, VersionMixin
 
 __all__ = [
     "Base",
@@ -10,6 +10,8 @@ __all__ = [
     "TimestampMixin",
     "SoftDeleteMixin",
     "TenantMixin",
+    "CompanyMixin",
+    "BranchMixin",
     "AuditMixin",
     "VersionMixin",
 ]
