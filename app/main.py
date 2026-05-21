@@ -1,75 +1,48 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-from app.core.config import get_settings
-from app.core.middleware.tenant import TenantMiddleware, TenantValidationMiddleware, RequestLoggingMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
-settings = get_settings()
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    yield
-    # Shutdown
-    from app.core.database import engine
-    await engine.dispose()
-
+from app.api.v1 import api_v1_router
+from app.core.api.response import error_response
 
 app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    title="Ceramix AI ERP",
+    version="1.0.0",
+    description="Enterprise Resource Planning API - Multi-tenant SaaS",
 )
 
-# Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(TenantMiddleware)
-app.add_middleware(TenantValidationMiddleware)
-app.add_middleware(RequestLoggingMiddleware)
 
-# Routers
-from app.modules.auth.router import router as auth_router
-from app.modules.users.router import router as users_router
-from app.modules.tenants.router import router as tenants_router
-from app.modules.crm.router import router as crm_router
-from app.modules.inventory.router import router as inventory_router
-from app.modules.sales.router import router as sales_router
-from app.modules.purchases.router import router as purchases_router
-from app.modules.accounting.router import router as accounting_router
-from app.modules.treasury.router import router as treasury_router
-from app.modules.hr.router import router as hr_router
-from app.modules.manufacturing.router import router as manufacturing_router
-from app.modules.ai.router import router as ai_router
-from app.modules.notifications.router import router as notifications_router
-from app.modules.reports.router import router as reports_router
-from app.websocket.router import router as ws_router
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = [
+        {"field": ".".join(str(loc) for loc in err["loc"]), "message": err["msg"]}
+        for err in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content=error_response(message="Validation failed", errors=errors),
+    )
 
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(users_router, prefix="/api/v1")
-app.include_router(tenants_router, prefix="/api/v1")
-app.include_router(crm_router, prefix="/api/v1")
-app.include_router(inventory_router, prefix="/api/v1")
-app.include_router(sales_router, prefix="/api/v1")
-app.include_router(purchases_router, prefix="/api/v1")
-app.include_router(accounting_router, prefix="/api/v1")
-app.include_router(treasury_router, prefix="/api/v1")
-app.include_router(hr_router, prefix="/api/v1")
-app.include_router(manufacturing_router, prefix="/api/v1")
-app.include_router(ai_router, prefix="/api/v1")
-app.include_router(notifications_router, prefix="/api/v1")
-app.include_router(reports_router, prefix="/api/v1")
-app.include_router(ws_router)
+
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content=error_response(message="Resource not found"),
+    )
+
+
+@app.exception_handler(500)
+async def internal_error_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=500,
+        content=error_response(message="Internal server error"),
+    )
+
+
+app.include_router(api_v1_router)
 
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": settings.APP_VERSION}
+    return {"status": "healthy", "version": "1.0.0"}
