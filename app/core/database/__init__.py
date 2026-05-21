@@ -1,4 +1,4 @@
-from .session import Base, engine, AsyncSessionLocal, get_db, transaction, nested_transaction, transactional
+from .session import Base, engine, AsyncSessionLocal, get_db, get_sync_engine, transaction, nested_transaction, transactional
 from .base_model import BaseModel, TimestampMixin, SoftDeleteMixin, TenantMixin, CompanyMixin, BranchMixin, AuditMixin, VersionMixin
 
 __all__ = [
@@ -6,6 +6,7 @@ __all__ = [
     "engine",
     "AsyncSessionLocal",
     "get_db",
+    "get_sync_engine",
     "transaction",
     "nested_transaction",
     "transactional",
