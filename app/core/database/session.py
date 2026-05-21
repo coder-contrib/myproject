@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Callable
-from functools import wraps
+from functools import wraps, lru_cache
+from sqlalchemy import create_engine, Engine
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from app.core.config import get_settings
@@ -23,6 +24,17 @@ AsyncSessionLocal = async_sessionmaker(
 
 class Base(DeclarativeBase):
     pass
+
+
+@lru_cache
+def get_sync_engine() -> Engine:
+    sync_url = settings.DATABASE_URL.replace("+asyncpg", "")
+    return create_engine(
+        sync_url,
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=settings.DATABASE_MAX_OVERFLOW,
+        echo=settings.DEBUG,
+    )
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
