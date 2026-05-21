@@ -1,0 +1,84 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      tag:
+        description: "Docker image tag to deploy"
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" << EOF
+            cd /opt/erp-$ENVIRONMENT
+            export IMAGE_TAG=$IMAGE_TAG
+            export REGISTRY=${{ env.REGISTRY }}
+            export IMAGE_NAME=${{ env.IMAGE_NAME }}
+
+            docker compose pull api worker beat
+            docker compose up -d --no-deps api worker beat
+
+            echo "Waiting for health check..."
+            for i in {1..30}; do
+              if curl -sf http://localhost:8000/health > /dev/null 2>&1; then
+                echo "Health check passed!"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "Health check failed - rolling back"
+            docker compose rollback 2>/dev/null || docker compose up -d --no-deps api worker beat
+            exit 1
+          EOF
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "Deployed ${{ steps.tag.outputs.tag }} to ${{ github.event.inputs.environment }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Deployment to ${{ github.event.inputs.environment }} failed!"

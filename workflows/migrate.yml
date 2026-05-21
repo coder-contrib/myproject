@@ -1,0 +1,70 @@
+name: Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      action:
+        description: "Migration action"
+        required: true
+        type: choice
+        options:
+          - upgrade
+          - downgrade
+      revision:
+        description: "Target revision (for downgrade, default: head for upgrade)"
+        required: false
+        type: string
+
+jobs:
+  migrate:
+    name: Run Migration (${{ github.event.inputs.action }})
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Determine revision
+        id: revision
+        run: |
+          if [ -n "${{ github.event.inputs.revision }}" ]; then
+            echo "target=${{ github.event.inputs.revision }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.action }}" = "upgrade" ]; then
+            echo "target=head" >> $GITHUB_OUTPUT
+          else
+            echo "target=-1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Running alembic ${{ github.event.inputs.action }} to ${{ steps.revision.outputs.target }}"
+          alembic ${{ github.event.inputs.action }} ${{ steps.revision.outputs.target }}
+
+      - name: Verify migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Current revision:"
+          alembic current
+          echo ""
+          echo "Migration history:"
+          alembic history --verbose -r -3:current
