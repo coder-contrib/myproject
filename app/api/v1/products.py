@@ -13,7 +13,7 @@ from app.core.api import (
     SearchParams, get_search,
 )
 from app.core.api.response import paginated_response, success_response
-from app.modules.inventory.models import Product, Category, Warehouse
+from app.modules.inventory.models import Product, ProductCategory as Category, Warehouse
 
 router = APIRouter(prefix="/products", tags=["products"])
 
