@@ -19,11 +19,10 @@ from app.core.middleware import (
 )
 from app.realtime.router import realtime_router
 from app.realtime.redis_pubsub import RedisPubSub
+from app.monitoring.middleware import MetricsMiddleware, PerformanceMiddleware
+from app.monitoring.structured_logging import configure_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
+configure_logging()
 
 redis_pubsub = RedisPubSub()
 
@@ -54,6 +53,12 @@ app.add_middleware(SecureHeadersMiddleware)
 
 # CORS - must be before request processing
 app.add_middleware(CORSMiddleware, **CORS_CONFIG)
+
+# Prometheus metrics collection
+app.add_middleware(MetricsMiddleware)
+
+# Performance monitoring (timing + slow request detection)
+app.add_middleware(PerformanceMiddleware)
 
 # Request logging (timing + structured logs)
 app.add_middleware(RequestLoggingMiddleware)
