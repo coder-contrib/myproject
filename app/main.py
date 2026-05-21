@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.core.config import get_settings
-from app.core.middleware.tenant import TenantMiddleware, RequestLoggingMiddleware
+from app.core.middleware.tenant import TenantMiddleware, TenantValidationMiddleware, RequestLoggingMiddleware
 
 settings = get_settings()
 
@@ -33,6 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TenantMiddleware)
+app.add_middleware(TenantValidationMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # Routers
