@@ -68,7 +68,3 @@ flutter:
   assets:
     - assets/images/
     - assets/icons/
-  fonts:
-    - family: CeramixIcons
-      fonts:
-        - asset: assets/fonts/CeramixIcons.ttf
