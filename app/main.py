@@ -29,9 +29,9 @@ redis_pubsub = RedisPubSub()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await redis_pubsub.start()
+    await redis_pubsub.connect()
     yield
-    await redis_pubsub.stop()
+    await redis_pubsub.disconnect()
 
 
 app = FastAPI(
