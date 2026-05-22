@@ -43,34 +43,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# --- Middleware Stack (order matters: outermost first) ---
+# --- Middleware Stack ---
+# In Starlette, the LAST add_middleware call becomes the OUTERMOST middleware.
+# CORS must be outermost so it handles OPTIONS preflight before anything else.
 
-# HTTPS redirect (outermost - redirects before processing)
-app.add_middleware(HTTPSRedirectMiddleware)
+# Audit logging (innermost)
+app.add_middleware(AuditLogMiddleware)
 
-# Secure headers on every response
-app.add_middleware(SecureHeadersMiddleware)
-
-# CORS - must be before request processing
-app.add_middleware(CORSMiddleware, **CORS_CONFIG)
-
-# Prometheus metrics collection
-app.add_middleware(MetricsMiddleware)
-
-# Performance monitoring (timing + slow request detection)
-app.add_middleware(PerformanceMiddleware)
-
-# Request logging (timing + structured logs)
-app.add_middleware(RequestLoggingMiddleware)
-
-# Rate limiting (reject before heavy processing)
-app.add_middleware(RateLimitMiddleware)
-
-# Input sanitization (block XSS/SQLi payloads)
+# Input sanitization
 app.add_middleware(InputSanitizationMiddleware)
 
-# Audit logging (innermost - has access to resolved state)
-app.add_middleware(AuditLogMiddleware)
+# Rate limiting
+app.add_middleware(RateLimitMiddleware)
+
+# Request logging
+app.add_middleware(RequestLoggingMiddleware)
+
+# Performance monitoring
+app.add_middleware(PerformanceMiddleware)
+
+# Prometheus metrics
+app.add_middleware(MetricsMiddleware)
+
+# HTTPS redirect
+app.add_middleware(HTTPSRedirectMiddleware)
+
+# Secure headers
+app.add_middleware(SecureHeadersMiddleware)
+
+# CORS - MUST be last (= outermost) to handle preflight OPTIONS requests
+app.add_middleware(CORSMiddleware, **CORS_CONFIG)
 
 
 # --- Exception Handlers ---
