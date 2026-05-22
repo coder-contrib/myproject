@@ -1,40 +1,72 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../data/providers/invoices_provider.dart';
 
-class InvoicesScreen extends StatelessWidget {
+class InvoicesScreen extends ConsumerWidget {
   const InvoicesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final invoices = ref.watch(invoicesProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Invoices'),
         actions: [
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => ref.read(invoicesProvider.notifier).refresh(),
+          ),
         ],
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(8),
-        itemCount: 0,
-        itemBuilder: (context, index) {
-          return Card(
-            child: ListTile(
-              leading: const CircleAvatar(child: Icon(Icons.receipt_long)),
-              title: const Text('INV-0001'),
-              subtitle: const Text('Customer Name'),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text('\$0.00', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(12)),
-                    child: const Text('Paid', style: TextStyle(fontSize: 11, color: Colors.green)),
+      body: invoices.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('Error: $e'),
+              const SizedBox(height: 16),
+              ElevatedButton(onPressed: () => ref.read(invoicesProvider.notifier).refresh(), child: const Text('Retry')),
+            ],
+          ),
+        ),
+        data: (data) {
+          if (data.items.isEmpty) {
+            return const Center(child: Text('No invoices yet.'));
+          }
+          return RefreshIndicator(
+            onRefresh: () => ref.read(invoicesProvider.notifier).refresh(),
+            child: ListView.builder(
+              padding: const EdgeInsets.all(8),
+              itemCount: data.items.length,
+              itemBuilder: (context, index) {
+                final inv = data.items[index];
+                final status = inv['status'] ?? 'draft';
+                final statusColor = switch (status) {
+                  'paid' => Colors.green,
+                  'overdue' => Colors.red,
+                  'sent' => Colors.blue,
+                  _ => Colors.grey,
+                };
+                return Card(
+                  child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.receipt_long)),
+                    title: Text(inv['invoice_number'] ?? 'INV-???'),
+                    subtitle: Text('Total: \$${(inv['total'] ?? 0).toStringAsFixed(2)}'),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: statusColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(status.toUpperCase(), style: TextStyle(fontSize: 11, color: statusColor, fontWeight: FontWeight.bold)),
+                    ),
+                    onTap: () => context.go('/sales/${inv['id']}'),
                   ),
-                ],
-              ),
-              onTap: () => context.go('/sales/$index'),
+                );
+              },
             ),
           );
         },
