@@ -24,7 +24,10 @@ class AuthService {
       'email': email,
       'password': password,
     });
-    final tokens = AuthTokens.fromJson(response.data);
+    final data = response.data is Map && response.data['data'] != null
+        ? response.data['data']
+        : response.data;
+    final tokens = AuthTokens.fromJson(data);
     await _storage.write(key: StorageKeys.accessToken, value: tokens.accessToken);
     await _storage.write(key: StorageKeys.refreshToken, value: tokens.refreshToken);
     return tokens;
@@ -32,7 +35,10 @@ class AuthService {
 
   Future<User> getCurrentUser() async {
     final response = await _dio.get('/users/me');
-    return User.fromJson(response.data);
+    final data = response.data is Map && response.data['data'] != null
+        ? response.data['data']
+        : response.data;
+    return User.fromJson(data);
   }
 
   Future<void> logout() async {
@@ -73,6 +79,7 @@ class AuthNotifier extends Notifier<AsyncValue<User?>> {
       state = AsyncValue.data(user);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 
