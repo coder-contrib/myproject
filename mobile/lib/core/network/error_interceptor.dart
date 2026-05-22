@@ -26,8 +26,9 @@ class ErrorInterceptor extends Interceptor {
   AppException _handleBadResponse(Response response) {
     final data = response.data;
     final message = data is Map ? (data['detail'] ?? data['message'] ?? '') : '';
+    final statusCode = response.statusCode ?? 0;
 
-    return switch (response.statusCode) {
+    return switch (statusCode) {
       400 => AppException.badRequest(message.toString()),
       401 => AppException.unauthorized(message.toString()),
       403 => AppException.forbidden(message.toString()),
@@ -35,7 +36,7 @@ class ErrorInterceptor extends Interceptor {
       409 => AppException.conflict(message.toString()),
       422 => AppException.validation(message.toString()),
       429 => AppException.rateLimited(message.toString()),
-      >= 500 => AppException.server(message.toString()),
+      _ when statusCode >= 500 => AppException.server(message.toString()),
       _ => AppException.unknown(message.toString()),
     };
   }

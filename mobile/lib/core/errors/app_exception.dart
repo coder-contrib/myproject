@@ -20,41 +20,41 @@ sealed class AppException implements Exception {
 }
 
 class NetworkException extends AppException {
-  const NetworkException(super.message) : super(0);
+  const NetworkException(String message) : super(message, 0);
 }
 
 class UnauthorizedException extends AppException {
-  const UnauthorizedException(super.message) : super(401);
+  const UnauthorizedException(String message) : super(message, 401);
 }
 
 class ForbiddenException extends AppException {
-  const ForbiddenException(super.message) : super(403);
+  const ForbiddenException(String message) : super(message, 403);
 }
 
 class NotFoundException extends AppException {
-  const NotFoundException(super.message) : super(404);
+  const NotFoundException(String message) : super(message, 404);
 }
 
 class BadRequestException extends AppException {
-  const BadRequestException(super.message) : super(400);
+  const BadRequestException(String message) : super(message, 400);
 }
 
 class ValidationException extends AppException {
-  const ValidationException(super.message) : super(422);
+  const ValidationException(String message) : super(message, 422);
 }
 
 class ConflictException extends AppException {
-  const ConflictException(super.message) : super(409);
+  const ConflictException(String message) : super(message, 409);
 }
 
 class RateLimitedException extends AppException {
-  const RateLimitedException(super.message) : super(429);
+  const RateLimitedException(String message) : super(message, 429);
 }
 
 class ServerException extends AppException {
-  const ServerException(super.message) : super(500);
+  const ServerException(String message) : super(message, 500);
 }
 
 class UnknownException extends AppException {
-  const UnknownException(super.message);
+  const UnknownException(String message) : super(message);
 }

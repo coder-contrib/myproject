@@ -9,8 +9,8 @@ final authServiceProvider = Provider<AuthService>((ref) {
   return AuthService(ref.watch(dioProvider));
 });
 
-final authStateProvider = StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((ref) {
-  return AuthNotifier(ref.watch(authServiceProvider));
+final authStateProvider = NotifierProvider<AuthNotifier, AsyncValue<User?>>(() {
+  return AuthNotifier();
 });
 
 class AuthService {
@@ -45,12 +45,14 @@ class AuthService {
   }
 }
 
-class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
-  final AuthService _service;
-
-  AuthNotifier(this._service) : super(const AsyncValue.data(null)) {
+class AuthNotifier extends Notifier<AsyncValue<User?>> {
+  @override
+  AsyncValue<User?> build() {
     _checkAuth();
+    return const AsyncValue.data(null);
   }
+
+  AuthService get _service => ref.read(authServiceProvider);
 
   Future<void> _checkAuth() async {
     if (await _service.isAuthenticated()) {

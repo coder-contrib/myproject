@@ -5,8 +5,6 @@ class AppTheme {
   static const _primaryColor = Color(0xFF1E3A5F);
   static const _secondaryColor = Color(0xFF4A90D9);
   static const _accentColor = Color(0xFFFF6B35);
-  static const _successColor = Color(0xFF27AE60);
-  static const _warningColor = Color(0xFFF39C12);
   static const _errorColor = Color(0xFFE74C3C);
 
   static ThemeData get light => ThemeData(
@@ -30,7 +28,7 @@ class AppTheme {
         color: Colors.white,
       ),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
@@ -67,9 +65,9 @@ class AppTheme {
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: _primaryColor,
       selectedIconTheme: const IconThemeData(color: Colors.white),
-      unselectedIconTheme: IconThemeData(color: Colors.white.withOpacity(0.6)),
+      unselectedIconTheme: IconThemeData(color: Colors.white.withValues(alpha: 0.6)),
       selectedLabelTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-      unselectedLabelTextStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
+      unselectedLabelTextStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
     ),
   );
 
@@ -83,7 +81,7 @@ class AppTheme {
       secondary: _accentColor,
     ),
     textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     ),
