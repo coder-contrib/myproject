@@ -24,6 +24,7 @@ class RedisPubSub:
     async def connect(self):
         self._redis = aioredis.from_url(REDIS_URL, decode_responses=True)
         self._pubsub = self._redis.pubsub()
+        await self._pubsub.subscribe("__system__")
         self._running = True
         self._listener_task = asyncio.create_task(self._listen())
         logger.info("Redis pub/sub connected")
@@ -64,6 +65,8 @@ class RedisPubSub:
                     )
                     if message and message["type"] == "message":
                         channel = message["channel"]
+                        if channel == "__system__":
+                            continue
                         data = json.loads(message["data"])
                         await manager.send_to_channel(channel, data)
                 else:
