@@ -4,6 +4,7 @@ import time
 import logging
 import asyncio
 from typing import Optional
+from dataclasses import dataclass
 
 import httpx
 
@@ -22,9 +23,6 @@ class DeliveryResult:
     response_body: str = ""
     response_time_ms: int = 0
     error: Optional[str] = None
-
-
-from dataclasses import dataclass
 
 
 class WebhookDispatcher:
