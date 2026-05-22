@@ -2,27 +2,27 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/network/dio_client.dart';
 
-final inventoryProvider = AsyncNotifierProvider<InventoryNotifier, InventoryState>(() => InventoryNotifier());
+final customersProvider = AsyncNotifierProvider<CustomersNotifier, CustomersState>(() => CustomersNotifier());
 
-class InventoryState {
+class CustomersState {
   final List<Map<String, dynamic>> items;
   final int total;
 
-  const InventoryState({this.items = const [], this.total = 0});
+  const CustomersState({this.items = const [], this.total = 0});
 }
 
-class InventoryNotifier extends AsyncNotifier<InventoryState> {
+class CustomersNotifier extends AsyncNotifier<CustomersState> {
   @override
-  Future<InventoryState> build() async {
+  Future<CustomersState> build() async {
     return await _fetch();
   }
 
   Dio get _dio => ref.read(dioProvider);
 
-  Future<InventoryState> _fetch({int page = 1}) async {
-    final response = await _dio.get('/inventory/stock', queryParameters: {'page': page, 'per_page': 20});
+  Future<CustomersState> _fetch({int page = 1}) async {
+    final response = await _dio.get('/users', queryParameters: {'page': page, 'per_page': 20});
     final data = response.data;
-    return InventoryState(
+    return CustomersState(
       items: List<Map<String, dynamic>>.from(data['data'] ?? []),
       total: data['total'] ?? 0,
     );
